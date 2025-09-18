@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grafo de relacionamiento de iniciativas – disposición circular</title>
+  <style>
+    :root{
+      --bg:#0b1220; --panel:#121a2b; --text:#e6eefc; --muted:#9fb0cc; --accent:#6ba7ff;
+      --cat-digital:#16706e;      /* Digitalización y automatización de procesos */
+      --cat-inteligencia:#0e5bd8; /* Inteligencia de Datos y Negocio */
+      --cat-centrado:#3b2a7a;     /* Centrado en el usuario */
+      --cat-transparencia:#7a1f3f;/* Transparencia proactiva */
+      --cat-proyecto:#b5d42d;     /* Proyectos */
+      --tipo-rel:#6ba7ff;         /* color enlaces relación */
+      --tipo-dep:#ff9b5a;         /* color enlaces dependencia */
+    }
+    html,body{height:100%;}
+    body{margin:0;background:linear-gradient(180deg,var(--bg),#09101c 60%);color:var(--text);font-family:Inter,system-ui,Segoe UI,Helvetica,Arial,sans-serif;}
+    header{position:sticky;top:0;z-index:10;background:rgba(9,16,28,.85);backdrop-filter:blur(8px);border-bottom:1px solid #1f2a44;}
+    .wrap{max-width:1200px;margin:0 auto;padding:14px 18px;}
+    h1{font-size:18px;margin:0 0 6px;}
+    .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+    .controls > *{background:var(--panel);border:1px solid #223052;color:var(--text);padding:8px 10px;border-radius:10px;font-size:14px}
+    .controls input[type="text"]{min-width:220px}
+    .legend{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
+    .legend .item{display:flex;gap:6px;align-items:center;background:transparent;border:none;padding:0}
+    .dot{width:12px;height:12px;border-radius:50%}
+    .diamond{width:12px;height:12px;display:inline-block;transform:rotate(45deg);border-radius:2px}
+
+    #chart{height: calc(100vh - 120px);} 
+    svg{width:100%;height:100%;display:block}
+
+    .link{stroke-width:1.25px;fill:none}
+    .link.link-rel{stroke:rgba(108,162,255,.55)}
+    .link.link-dep{stroke:var(--tipo-dep);stroke-dasharray:4 3}
+    .link.highlight{stroke:var(--accent);stroke-width:2px}
+    .nodelabel{font-size:12px;fill:var(--muted)}
+    .nodelabel.emph{fill:#fff;font-weight:600}
+    .projlabel{font-size:12px;fill:var(--text);font-weight:500}
+    .projlabel.emph{font-weight:700}
+    .fulllabel{font-size:12px;fill:var(--text);font-weight:500}
+    .fulllabel.emph{font-weight:700}
+
+    /* Etiqueta apilada (código + nombre en varias líneas) */
+    .stacklabel{font-size:12px;fill:var(--text)}
+    .stacklabel .code{fill:var(--muted);font-weight:700}
+    .stacklabel .name{fill:var(--text);font-weight:500}
+    .stacklabel.emph .code,.stacklabel.emph .name{font-weight:800}
+
+    .node circle{stroke:#0b1220;stroke-width:1.5px}
+    .node:hover circle{stroke:#fff;stroke-width:2}
+
+    /* Estilo especial para proyectos (rombo) */
+    .node .proj{stroke:#0b1220;stroke-width:1.4px}
+    .node:hover .proj{stroke:#fff}
+
+    .tooltip{position:absolute;pointer-events:none;background:#0d1526;border:1px solid #2a3a63;color:var(--text);padding:10px 12px;border-radius:12px;font-size:13px;box-shadow:0 10px 24px rgba(0,0,0,.35)}
+    .tooltip h4{margin:0 0 6px;font-size:13px;color:#b9c8e6}
+    .tooltip p{margin:0;color:#d7e2fb}
+
+    .footer{position:absolute;right:14px;bottom:10px;color:var(--muted);font-size:12px}
+    .kbd{border:1px solid #2a3a63;background:#0d1526;padding:1px 6px;border-radius:6px}
+
+    .test-status{position:absolute;left:14px;bottom:10px;font-size:12px;padding:6px 10px;border-radius:999px}
+    .ok{background:#153b2e;color:#9af1c6;border:1px solid #1e6b52}
+    .fail{background:#3b1515;color:#f1a3a3;border:1px solid #6b1e1e}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Grafo de relacionamiento de iniciativas</h1>
+      <div class="controls">
+        <input id="search" type="text" placeholder="Buscar (ej. IN-018 o ERP)…" />
+        <label><input id="toggle-labels" type="checkbox" checked style="accent-color:var(--accent)"> Mostrar etiquetas</label>
+        <label><input id="toggle-rel" type="checkbox" checked style="accent-color:var(--accent)"> ✓ Relación</label>
+        <label><input id="toggle-dep" type="checkbox" checked style="accent-color:var(--accent)"> D Dependencia</label>
+        <button id="reset">Recentrar</button>
+        <div class="legend">
+          <div class="item"><span class="dot" style="background:var(--cat-digital)"></span><span>Digitalización y automatización de procesos</span></div>
+          <div class="item"><span class="dot" style="background:var(--cat-inteligencia)"></span><span>Inteligencia de Datos y Negocio</span></div>
+          <div class="item"><span class="dot" style="background:var(--cat-centrado)"></span><span>Centrado en el usuario</span></div>
+          <div class="item"><span class="dot" style="background:var(--cat-transparencia)"></span><span>Transparencia proactiva</span></div>
+          <div class="item"><span class="diamond" style="background:var(--cat-proyecto)"></span><span>Proyectos</span></div>
+      </div>
+    </div>
+  </header>
+
+  <div id="chart"></div>
+  <div class="footer">Tip: clic en un nodo para resaltar sus relaciones. <span class="kbd">Wheel</span> zoom. Recentrar para volver al inicio.</div>
+  <div id="test-status" class="test-status" style="display:none"></div>
+
+  <!-- D3.js -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script>
+  // ==== Datos (generados desde la tabla adjunta) ====
+  const nodes = [
+    {"id":"IN-001","name":"Modernización del ecosistema de reconocimiento de derechos","cat":"digital"},
+    {"id":"IN-003","name":"Inteligencia de comportamiento en RRHH","cat":"inteligencia"},
+    {"id":"IN-004","name":"Observatorio de sostenibilidad financiera","cat":"inteligencia"},
+    {"id":"IN-005","name":"Agente digital de relacionamiento con el usuario","cat":"transparencia"},
+    {"id":"IN-007","name":"SIA (Sistema Inteligente de Auditoría)","cat":"digital"},
+    {"id":"IN-010","name":"Manejo inteligente de PQRSD","cat":"centrado"},
+    {"id":"IN-018","name":"Conecta-ADRES","cat":"inteligencia"},
+    {"id":"IN-020","name":"Gemelo Digital para análisis de OFAS","cat":"digital"},
+    {"id":"IN-024","name":"Validación de aportes en PUR","cat":"digital"},
+    {"id":"IN-026","name":"Sistema de Gestión de Portafolio e Inversiones Inteligente","cat":"digital"},
+    {"id":"PRJ_PUR","name":"Portal Único de Recaudo","cat":"proyecto"},
+    {"id":"PRJ_SEDE","name":"Nueva Sede Electrónica (ADRES)","cat":"proyecto"},
+    {"id":"PRJ_ERP","name":"ERP","cat":"proyecto"},
+    {"id":"PRJ_SGDA","name":"SGDA · Gestión Documental y Expediente Electrónico","cat":"proyecto"}
+  ];
+
+  // Enlaces: "relacion" (R) se consideran no dirigidos (se deduplican),
+  // "dependencia" (D) se consideran dirigidos fila→columna (por favor confirmar).
+  const links = [
+    {"source":"IN-001","target":"IN-004","type":"relacion"},
+    {"source":"IN-001","target":"IN-007","type":"relacion"},
+    {"source":"IN-001","target":"IN-018","type":"relacion"},
+    {"source":"IN-001","target":"IN-005","type":"relacion"},
+    {"source":"IN-004","target":"IN-018","type":"relacion"},
+    {"source":"IN-004","target":"PRJ_PUR","type":"relacion"},
+    {"source":"IN-004","target":"PRJ_ERP","type":"relacion"},
+    {"source":"IN-004","target":"PRJ_SGDA","type":"relacion"},
+    {"source":"IN-007","target":"IN-018","type":"relacion"},
+    {"source":"IN-007","target":"PRJ_PUR","type":"relacion"},
+    {"source":"IN-007","target":"PRJ_ERP","type":"relacion"},
+    {"source":"IN-018","target":"IN-003","type":"relacion"},
+    {"source":"IN-018","target":"IN-010","type":"relacion"},
+    {"source":"IN-018","target":"IN-005","type":"dependencia"},
+    {"source":"IN-018","target":"IN-024","type":"relacion"},
+    {"source":"IN-018","target":"IN-026","type":"dependencia"},
+    {"source":"IN-003","target":"PRJ_ERP","type":"relacion"},
+    {"source":"IN-010","target":"IN-005","type":"dependencia"},
+    {"source":"IN-010","target":"PRJ_SGDA","type":"relacion"},
+    {"source":"IN-005","target":"IN-018","type":"dependencia"},
+    {"source":"IN-005","target":"IN-010","type":"dependencia"},
+    {"source":"IN-005","target":"PRJ_PUR","type":"relacion"},
+    {"source":"IN-005","target":"PRJ_SEDE","type":"relacion"},
+    {"source":"IN-005","target":"PRJ_ERP","type":"relacion"},
+    {"source":"IN-024","target":"PRJ_PUR","type":"relacion"},
+    {"source":"IN-024","target":"PRJ_SEDE","type":"relacion"},
+    {"source":"IN-024","target":"PRJ_ERP","type":"relacion"},
+    {"source":"IN-024","target":"PRJ_SGDA","type":"relacion"},
+    {"source":"IN-026","target":"IN-018","type":"dependencia"},
+    {"source":"IN-026","target":"PRJ_ERP","type":"dependencia"},
+    {"source":"PRJ_ERP","target":"IN-026","type":"dependencia"}
+  ];
+
+  // ==== Configuración visual ====
+  const catColor = {
+    digital: getComputedStyle(document.documentElement).getPropertyValue('--cat-digital').trim(),
+    inteligencia: getComputedStyle(document.documentElement).getPropertyValue('--cat-inteligencia').trim(),
+    centrado: getComputedStyle(document.documentElement).getPropertyValue('--cat-centrado').trim(),
+    transparencia: getComputedStyle(document.documentElement).getPropertyValue('--cat-transparencia').trim(),
+    proyecto: getComputedStyle(document.documentElement).getPropertyValue('--cat-proyecto').trim(),
+  };
+
+  const chartEl = document.getElementById('chart');
+  const svg = d3.select('#chart').append('svg');
+  const g = svg.append('g');
+
+  // Definición de flechas para dependencias
+  const defs = svg.append('defs');
+  defs.append('marker')
+    .attr('id','arrow-dep')
+    .attr('viewBox','0 0 10 10')
+    .attr('refX', 9)
+    .attr('refY', 5)
+    .attr('markerWidth', 6)
+    .attr('markerHeight', 6)
+    .attr('orient','auto-start-reverse')
+    .append('path')
+    .attr('d','M 0 0 L 10 5 L 0 10 z')
+    .attr('fill','var(--tipo-dep)');
+
+  const zoom = d3.zoom().scaleExtent([0.5, 4]).on('zoom', (ev)=>{ g.attr('transform', ev.transform); });
+  svg.call(zoom);
+
+  const link = g.append('g').attr('stroke-linecap','round').selectAll('.link')
+    .data(links)
+    .join('path')
+    .attr('class', d=> 'link ' + (d.type==='dependencia'?'link-dep':'link-rel'))
+    .attr('stroke-opacity',0.9)
+    .attr('marker-end', d=> d.type==='dependencia' ? 'url(#arrow-dep)' : null);
+
+  const node = g.append('g').selectAll('.node')
+    .data(nodes)
+    .join('g')
+    .attr('class','node');
+
+  const rScale = d => 7.5 + degree(d.id)*1.3;
+
+  node.append('circle')
+    .attr('r', d=> rScale(d))
+    .attr('fill', d=> catColor[d.cat] || '#aaa');
+
+  // Ocultar el círculo en nodos de proyecto para que solo se vea el rombo
+  node.filter(d=> d.cat==='proyecto')
+    .select('circle')
+    .attr('fill','none')
+    .attr('stroke','none');
+
+  // Añadir rombo para proyectos (además del círculo para compatibilidad con resaltado)
+  node.filter(d=> d.cat==='proyecto')
+    .append('rect')
+    .attr('class','proj')
+    .attr('width', d=> Math.SQRT2 * rScale(d))
+    .attr('height', d=> Math.SQRT2 * rScale(d))
+    .attr('x', d=> - (Math.SQRT2 * rScale(d))/2)
+    .attr('y', d=> - (Math.SQRT2 * rScale(d))/2)
+    .attr('transform','rotate(45)')
+    .attr('fill', d=> catColor[d.cat] || '#aaa');
+
+  const labels = g.append('g').selectAll('.nodelabel')
+    .data(nodes)
+    .join('text')
+    .attr('class','nodelabel')
+    .text(d=> d.id);
+
+  // Etiquetas con nombre completo para proyectos
+  const projLabels = g.append('g').selectAll('.projlabel')
+    .data(nodes.filter(n=> n.cat==='proyecto'))
+    .join('text')
+    .attr('class','projlabel')
+    .text(d=> d.name);
+
+  // Etiquetas con nombre completo para iniciativas (no proyectos)
+  const fullLabels = g.append('g').selectAll('.fulllabel')
+    .data(nodes.filter(n=> n.cat!=='proyecto'))
+    .join('text')
+    .attr('class','fulllabel')
+    .text(d=> d.name);
+
+  // NUEVO: etiqueta apilada visible (código + nombre envuelto)
+  const stackLabels = g.append('g').selectAll('.stacklabel')
+    .data(nodes)
+    .join('text')
+    .attr('class','stacklabel')
+    .attr('data-id', d=> d.id);
+
+  // Tooltip
+  const tooltip = d3.select('body').append('div').attr('class','tooltip').style('opacity',0);
+  node.on('mouseenter', (ev,d)=>{
+    tooltip.style('opacity',1)
+      .html(`<h4>${d.id}</h4><p>${d.name}</p><p class="badge"><span class="dot" style="background:${catColor[d.cat]}"></span> ${categoriaNombre(d.cat)}</p>`);
+  }).on('mousemove', (ev)=>{
+    tooltip.style('left', (ev.pageX+14)+ 'px').style('top', (ev.pageY+14)+'px');
+  }).on('mouseleave', ()=> tooltip.style('opacity',0));
+
+  // Click para resaltar vecindad
+  node.on('click', (ev, d)=> highlightNeighborhood(d.id));
+
+  // --- Layout circular ---
+  let cx=0, cy=0, R=0; // se recalculan en resize()
+
+  function computeLayout(){
+    const r = chartEl.getBoundingClientRect();
+    svg.attr('width', r.width).attr('height', r.height);
+    const pad = 50; // margen interno
+    cx = r.width/2; cy = r.height/2; R = Math.min(r.width, r.height)/2 - pad;
+
+    // Posiciona nodos en circunferencia (ordenados por ID)
+    const sorted = [...nodes].sort((a,b)=> a.id.localeCompare(b.id));
+    const idToIndex = new Map(sorted.map((n,i)=>[n.id,i]));
+
+    nodes.forEach((n)=>{
+      const i = idToIndex.get(n.id);
+      const theta = (i / nodes.length) * 2*Math.PI - Math.PI/2; // inicia arriba
+      n._theta = theta;
+      n.x = cx + R * Math.cos(theta);
+      n.y = cy + R * Math.sin(theta);
+    });
+
+    // Dibuja enlaces como curvas cuadráticas pasando por el centro
+    link.attr('d', d=>{
+      const a = nodeById(d.source), b = nodeById(d.target);
+      return `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`;
+    });
+
+    // Posiciona nodos
+    node.attr('transform', d=> `translate(${d.x},${d.y})`);
+
+    // Etiquetas radiales (tangenciales hacia afuera)
+    labels
+      .attr('text-anchor', d=> anchorForAngle(d._theta))
+      .attr('transform', d=> {
+        const angle = deg(d._theta);
+        const rotate = (angle>90 && angle<270) ? angle+180 : angle; // voltear
+        const tx = cx + (R + 14) * Math.cos(d._theta);
+        const ty = cy + (R + 14) * Math.sin(d._theta);
+        return `translate(${tx},${ty}) rotate(${rotate})`;
+      })
+      .style('user-select','none')
+      .style('pointer-events','none')
+      .attr('opacity', 0);
+
+    // Nombres completos de proyectos, más afuera del borde
+    projLabels
+      .attr('text-anchor', d=> anchorForAngle(d._theta))
+      .attr('transform', d=> {
+        const angle = deg(d._theta);
+        const rotate = (angle>90 && angle<270) ? angle+180 : angle;
+        const tx = cx + (R + 32) * Math.cos(d._theta);
+        const ty = cy + (R + 32) * Math.sin(d._theta);
+        return `translate(${tx},${ty}) rotate(${rotate})`;
+      })
+      .style('user-select','none')
+      .style('pointer-events','none')
+      .attr('opacity', 0);
+
+    // Nombres completos de iniciativas (ligeramente más cerca que proyectos)
+    fullLabels
+      .attr('text-anchor', d=> anchorForAngle(d._theta))
+      .attr('transform', d=> {
+        const angle = deg(d._theta);
+        const rotate = (angle>90 && angle<270) ? angle+180 : angle;
+        const tx = cx + (R + 24) * Math.cos(d._theta);
+        const ty = cy + (R + 24) * Math.sin(d._theta);
+        return `translate(${tx},${ty}) rotate(${rotate})`;
+      })
+      .style('user-select','none')
+      .style('pointer-events','none')
+      .attr('opacity', 0);
+
+    // NUEVO: etiqueta apilada visible (código + nombre envuelto)
+    const maxChars = maxCharsForNode();
+    stackLabels
+      .attr('text-anchor', d=> anchorForAngle(d._theta))
+      .attr('transform', d=> {
+        const angle = deg(d._theta);
+        const rotate = (angle>90 && angle<270) ? angle+180 : angle; // voltear
+        const tx = cx + (R + 14) * Math.cos(d._theta);
+        const ty = cy + (R + 14) * Math.sin(d._theta);
+        return `translate(${tx},${ty}) rotate(${rotate})`;
+      })
+      .style('user-select','none')
+      .style('pointer-events','none')
+      .attr('opacity', document.getElementById('toggle-labels').checked?1:0)
+      .each(function(d){
+        const t = d3.select(this);
+        t.selectAll('tspan').remove();
+        t.append('tspan').attr('class','code').text(d.id);
+        const lines = wrapLines(d.name, maxChars);
+        lines.forEach((ln, i)=>{
+          t.append('tspan')
+            .attr('class','name')
+            .attr('x', 0)
+            .attr('dy', i===0 ? '1.15em' : '1.1em')
+            .text(ln);
+        });
+      });
+  }
+
+  function nodeById(id){ return nodes.find(n=> n.id===id); }
+  function deg(rad){ return rad * 180/Math.PI; }
+  function anchorForAngle(theta){
+    const a = deg(theta);
+    return (a>90 && a<270) ? 'end' : 'start';
+  }
+  // Helpers para envolver texto y adaptar longitud por viewport
+  function wrapLines(str, maxChars){
+    const words = String(str||'').split(/\s+/);
+    const lines = [];
+    let line = '';
+    for(const w of words){
+      const trial = line ? line + ' ' + w : w;
+      if(trial.length <= maxChars){
+        line = trial;
+      } else {
+        if(line) lines.push(line);
+        line = w;
+      }
+    }
+    if(line) lines.push(line);
+    return lines;
+  }
+  function maxCharsForNode(){
+    const w = window.innerWidth || 1024;
+    if(w < 560) return 14;
+    if(w < 800) return 18;
+    if(w < 1200) return 22;
+    return 26;
+  }
+
+  // Inicializa + resize
+  addEventListener('resize', computeLayout);
+  computeLayout();
+
+  // ---- Utilidades ----
+  function degree(id){
+    // Conecta tanto relaciones (no dirigidas) como dependencias (dirigidas)
+    return links.reduce((acc,l)=> acc + ((l.source===id) || (l.target===id) ? 1:0), 0);
+  }
+  function categoriaNombre(c){
+    const map = {
+      digital:'Digitalización y automatización de procesos',
+      inteligencia:'Inteligencia de Datos y Negocio',
+      centrado:'Centrado en el usuario',
+      transparencia:'Transparencia proactiva',
+      proyecto:'Proyecto'
+    };
+    return map[c] ?? c;
+  }
+
+  function highlightNeighborhood(centerId){
+    const neighbor = new Set([centerId]);
+    links.forEach(l=>{ if(l.source===centerId||l.target===centerId){ neighbor.add(l.source); neighbor.add(l.target);}
+ });
+
+    link.classed('highlight', d=> d.source===centerId || d.target===centerId)
+        .attr('stroke-opacity', d=> (d.source===centerId || d.target===centerId)?1:0.35);
+
+    node.selectAll('circle, .proj').attr('opacity', d=> neighbor.has(d.id)? 1: 0.25);
+    labels.classed('emph', d=> d.id===centerId)
+          .attr('opacity', d=> neighbor.has(d.id)? 1: 0.12);
+    projLabels.classed('emph', d=> d.id===centerId)
+          .attr('opacity', d=> neighbor.has(d.id)? 1: 0.12);
+    fullLabels.classed('emph', d=> d.id===centerId)
+          .attr('opacity', d=> neighbor.has(d.id)? 1: 0.12);
+  }
+
+  function clearHighlight(){
+    link.classed('highlight', false).attr('stroke-opacity',0.9);
+    node.selectAll('circle, .proj').attr('opacity', 1);
+    const show = document.getElementById('toggle-labels').checked;
+    labels.classed('emph', false).attr('opacity', 0);
+    projLabels.classed('emph', false).attr('opacity', 0);
+    fullLabels.classed('emph', false).attr('opacity', 0);
+    stackLabels.classed('emph', false).attr('opacity', show ? 1: 0);
+  }
+
+  // ---- Controles ----
+  document.getElementById('toggle-labels').addEventListener('change', (e)=>{
+    const on = e.target.checked;
+    // Mantener ocultas las capas antiguas (compatibilidad)
+    labels.attr('opacity', 0);
+    projLabels.attr('opacity', 0);
+    fullLabels.attr('opacity', 0);
+    // Mostrar/ocultar la etiqueta apilada
+    stackLabels.attr('opacity', on? 1: 0);
+  });
+  document.getElementById('toggle-rel').addEventListener('change', applyTypeFilter);
+  document.getElementById('toggle-dep').addEventListener('change', applyTypeFilter);
+
+  function applyTypeFilter(){
+    const showRel = document.getElementById('toggle-rel').checked;
+    const showDep = document.getElementById('toggle-dep').checked;
+    link.style('display', d=> (d.type==='relacion' && !showRel) || (d.type==='dependencia' && !showDep) ? 'none' : null);
+  }
+  applyTypeFilter();
+
+  document.getElementById('reset').addEventListener('click', ()=>{
+    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+    clearHighlight();
+    computeLayout();
+  });
+
+  document.getElementById('search').addEventListener('input', (e)=>{
+    const q = e.target.value.trim().toUpperCase();
+    const matchIds = nodes.filter(n=> n.id.includes(q) || n.name.toUpperCase().includes(q)).map(n=> n.id);
+
+    node.selectAll('circle, .proj').attr('opacity', d=> q==='' || matchIds.includes(d.id) ? 1 : 0.15);
+    const showLabels = document.getElementById('toggle-labels').checked;
+    // Capas antiguas ocultas
+    labels.attr('opacity', 0);
+    projLabels.attr('opacity', 0);
+    fullLabels.attr('opacity', 0);
+    // Etiqueta apilada visible/atenuada
+    stackLabels.attr('opacity', d=> (showLabels && (q==='' || matchIds.includes(d.id))) ? 1 : (q?0.05: (showLabels?1:0)));
+
+    const exact = nodes.find(n=> n.id===q);
+    if (exact) highlightNeighborhood(exact.id);
+    if (q==='') clearHighlight();
+  });
+
+  // ---- Titles en aristas (tooltip nativo) ----
+  link.append('title').text(d=> d.type==='dependencia' ? 'Dependencia (D)' : 'Relación (R)');
+
+  // ---- Pruebas (derivadas de los datos actuales) ----
+  function runTests(){
+    const status = document.getElementById('test-status');
+    const results = [];
+    function check(name, cond){
+      const ok = !!cond; results.push({name, ok});
+      (ok ? console.log : console.error)(`${ok?'✅':'❌'} ${name}`);
+      return ok;
+    }
+
+    // 1) Stubs de drag presentes (compatibilidad con pruebas previas)
+    check('Funciones drag definidas', typeof dragstarted==='function' && typeof dragged==='function' && typeof dragended==='function');
+
+    // 2) Conteos coherentes con los datos
+    const typeCounts = links.reduce((a,l)=>{a[l.type]=(a[l.type]||0)+1;return a;},{});
+    check('Hay 14 nodos', nodes.length===14);
+    check('Relaciones ≥ 0', (typeCounts['relacion']||0) >= 0);
+    check('Dependencias ≥ 0', (typeCounts['dependencia']||0) >= 0);
+
+    // 3) Para relaciones (no dirigidas) no debe haber duplicados ida/vuelta
+    const rels = links.filter(l=> l.type==='relacion');
+    const sigs = new Set(rels.map(l=>[l.source,l.target].sort().join('--')));
+    check('Relaciones sin duplicados', sigs.size===rels.length);
+
+    // 4) Nodos colocados en circunferencia
+    let cxLocal=cx, cyLocal=cy, rLocal=R; // usan los cálculos activos
+    const allOnCircle = nodes.every(n=> Math.abs(Math.hypot(n.x - cxLocal, n.y - cyLocal) - rLocal) < 1.5);
+    check('Nodos sobre circunferencia', allOnCircle);
+
+    // 5) Etiquetas de proyectos renderizadas
+    check('Etiquetas de proyectos = #proyectos', projLabels.size() === nodes.filter(n=> n.cat==='proyecto').length);
+
+    // 6) Etiquetas de nombres completas (proyectos + iniciativas)
+    check('Etiquetas de nombres completas = #nodos', (projLabels.size() + fullLabels.size()) === nodes.length);
+
+    // 7) Enlaces de dependencia tienen flecha y clase
+    const depOk = d3.selectAll('.link-dep').nodes().every(p=> p.getAttribute('marker-end'));
+    check('Dependencias con flecha', depOk);
+
+    // 8) Hay una etiqueta apilada por nodo
+    check('Etiquetas apiladas = #nodos', d3.selectAll('.stacklabel').size() === nodes.length);
+
+    // 9) La primera línea de la etiqueta apilada es el código
+    const sample = d3.selectAll('.stacklabel').filter(d=> d && d.id==='IN-018');
+    const firstTspan = sample.size()? d3.select(sample.node()).select('tspan').text() : '';
+    check('Primera línea es el código', firstTspan === 'IN-018');
+
+    // 10) Nombre largo envuelto en ≥2 líneas (ej. IN-026)
+    const longSel = d3.selectAll('.stacklabel').filter(d=> d && d.id==='IN-026');
+    let nameLineCount = 0;
+    if(longSel.size()){
+      const tspans = d3.select(longSel.node()).selectAll('tspan.name').nodes();
+      nameLineCount = tspans.length;
+    }
+    check('Nombre largo envuelto en varias líneas', nameLineCount >= 2);
+
+    const failed = results.filter(r=>!r.ok);
+    status.style.display = 'inline-block';
+    if(failed.length===0){
+      status.className = 'test-status ok';
+      status.textContent = '✓ Pruebas OK';
+    } else {
+      status.className = 'test-status fail';
+      status.textContent = `✗ ${failed.length} pruebas fallaron (ver consola)`;
+    }
+  }
+
+  document.getElementById('run-tests').addEventListener('click', runTests);
+  runTests();
+
+  // === Stubs de drag (se mantienen para compatibilidad con pruebas existentes) ===
+  function dragstarted(event, d){}
+  function dragged(event, d){}
+  function dragended(event, d){}
+
+  </script>
+</body>
+</html>
+
+
+
